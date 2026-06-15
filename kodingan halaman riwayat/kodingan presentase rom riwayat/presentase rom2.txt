@@ -1,0 +1,176 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class PresentaseRomCerdas2 extends StatefulWidget {
+  const PresentaseRomCerdas2({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.textColor,
+    required this.textSize,
+    required this.dateKey,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color textColor;
+  final double textSize;
+  final String dateKey;
+
+  @override
+  State<PresentaseRomCerdas2> createState() => _PresentaseRomCerdas2State();
+}
+
+class _PresentaseRomCerdas2State extends State<PresentaseRomCerdas2> {
+  late DatabaseReference _dbRef;
+  StreamSubscription? _dbSubscription;
+  String _nilaiTeks = "...";
+  bool _isLiveMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLiveMode();
+    _initSequence();
+  }
+
+  @override
+  void didUpdateWidget(PresentaseRomCerdas2 oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dateKey != widget.dateKey ||
+        oldWidget.dbPath != widget.dbPath) {
+      _dbSubscription?.cancel();
+      setState(() {
+        _nilaiTeks = "...";
+      });
+      _checkLiveMode();
+      _initSequence();
+    }
+  }
+
+  void _checkLiveMode() {
+    DateTime now = DateTime.now();
+    String todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    _isLiveMode = (widget.dateKey == todayStr);
+  }
+
+  Future<void> _initSequence() async {
+    _setupFirebaseRefs();
+    await _loadLocalCache();
+    if (_isLiveMode) {
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) _listenToFirebase();
+      });
+    } else {
+      if (_nilaiTeks == "..." || _nilaiTeks == "0%") {
+        await _getHistoryFromFirebaseOnce();
+      }
+    }
+  }
+
+  void _setupFirebaseRefs() {
+    FirebaseDatabase database = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL:
+            'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app');
+    String finalPath = widget.dbPath;
+    if (!finalPath.endsWith(widget.dateKey)) {
+      finalPath = "$finalPath/${widget.dateKey}";
+    }
+    _dbRef = database.ref('$finalPath/presentase_rom');
+  }
+
+  Future<void> _loadLocalCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? cachedData = prefs.getString('presentase_rom_2_${widget.dateKey}');
+    if (mounted) {
+      setState(() {
+        if (cachedData != null) {
+          _nilaiTeks = cachedData;
+        } else if (_isLiveMode) {
+          _nilaiTeks = "0%";
+        }
+      });
+    }
+  }
+
+  Future<void> _getHistoryFromFirebaseOnce() async {
+    try {
+      DataSnapshot snapshot =
+          await _dbRef.get().timeout(const Duration(seconds: 10));
+      _processSnapshot(snapshot);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _nilaiTeks = "0%";
+        });
+      }
+    }
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription = _dbRef.onValue.listen((event) async {
+      _processSnapshot(event.snapshot);
+    });
+  }
+
+  Future<void> _processSnapshot(DataSnapshot snapshot) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (snapshot.exists && snapshot.value != null) {
+      double val = double.tryParse(snapshot.value.toString()) ?? 0.0;
+      String result = '${val.toStringAsFixed(1)}%';
+      if (mounted) {
+        setState(() {
+          _nilaiTeks = result;
+        });
+      }
+      prefs.setString('presentase_rom_2_${widget.dateKey}', result);
+    } else {
+      if (mounted) {
+        setState(() {
+          _nilaiTeks = "0%";
+        });
+      }
+      prefs.remove('presentase_rom_2_${widget.dateKey}');
+    }
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: widget.width,
+      height: widget.height,
+      alignment: Alignment.center,
+      child: Text(
+        _nilaiTeks,
+        style: TextStyle(
+          fontSize: widget.textSize,
+          color: widget.textColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,241 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import '/custom_code/widgets/index.dart';
+import '/custom_code/actions/index.dart';
+import '/flutter_flow/custom_functions.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ProgressBarRiwayat8 extends StatefulWidget {
+  const ProgressBarRiwayat8({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.progressColor,
+    required this.backgroundColor,
+    this.label,
+    required this.dateKey,
+  });
+  final double? width, height;
+  final String dbPath, dateKey;
+  final Color progressColor, backgroundColor;
+  final String? label;
+  @override
+  State<ProgressBarRiwayat8> createState() => _ProgressBarRiwayatState8();
+}
+
+class _ProgressBarRiwayatState8 extends State<ProgressBarRiwayat8> {
+  late DatabaseReference _dbRef, _setRef;
+  Map<String, dynamic> _data = {};
+  String _status = "Memuat data...";
+  StreamSubscription? _dbSub, _setSub;
+  bool _isLive = false;
+  double _min = 40.0, _max = 60.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkMode();
+  }
+
+  void _checkMode() {
+    DateTime n = DateTime.now();
+    _isLive = (widget.dateKey ==
+        "${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}");
+    _dbRef = FirebaseDatabase.instanceFor(
+            app: Firebase.app(),
+            databaseURL:
+                'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app')
+        .ref(widget.dbPath);
+    _setRef = FirebaseDatabase.instanceFor(
+            app: Firebase.app(),
+            databaseURL:
+                'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app')
+        .ref('pasien_8/pengaturan'); // <--- GANTI ANGKA PASIEN
+
+    _loadCache().then((_) {
+      if (_isLive) {
+        _listenDb();
+        _listenSet();
+      } else {
+        _getSetOnce();
+        _getDbOnce();
+      }
+    });
+  }
+
+  Future<void> _loadCache() async {
+    SharedPreferences pr = await SharedPreferences.getInstance();
+    String? cData =
+        pr.getString('riwayat_8_${widget.dateKey}'); // <--- GANTI ANGKA
+    if (mounted) {
+      setState(() {
+        _min = double.tryParse(
+                pr.getString('set_min_8_${widget.dateKey}') ?? "40") ??
+            40.0; // <--- GANTI ANGKA
+        _max = double.tryParse(
+                pr.getString('set_max_8_${widget.dateKey}') ?? "60") ??
+            60.0; // <--- GANTI ANGKA
+        if (cData != null)
+          _data = Map<String, dynamic>.from(json.decode(cData));
+      });
+    }
+  }
+
+  Future<void> _getDbOnce() async {
+    try {
+      DataSnapshot s = await _dbRef.get().timeout(const Duration(seconds: 10));
+      if (s.value != null && mounted) {
+        Map d = (s.value is Map) ? s.value as Map : {};
+        Map<String, dynamic> f = {};
+        d.forEach((k, v) {
+          if (k.toString().toLowerCase().contains('wb')) f[k.toString()] = v;
+        });
+        setState(() {
+          _data = f;
+          _status = f.isEmpty ? "Data kosong." : "";
+        });
+        SharedPreferences pr = await SharedPreferences.getInstance();
+        pr.setString(
+            'riwayat_8_${widget.dateKey}', json.encode(f)); // <--- GANTI ANGKA
+      }
+    } catch (e) {
+      if (mounted && _data.isEmpty) setState(() => _status = "Offline.");
+    }
+  }
+
+  Future<void> _getSetOnce() async {
+    try {
+      DataSnapshot s = await _setRef.get();
+      if (s.value != null && s.value is Map) {
+        Map d = s.value as Map;
+        setState(() {
+          _min = double.tryParse(d['setpoint_min']
+                  .toString()
+                  .replaceAll(RegExp(r'[^0-9.]'), '')) ??
+              40.0;
+          _max = double.tryParse(d['setpoint_max']
+                  .toString()
+                  .replaceAll(RegExp(r'[^0-9.]'), '')) ??
+              60.0;
+        });
+      }
+    } catch (e) {}
+  }
+
+  void _listenDb() {
+    _dbSub = _dbRef.onValue.listen((e) {
+      if (e.snapshot.value != null && mounted) {
+        Map d = (e.snapshot.value is Map) ? e.snapshot.value as Map : {};
+        Map<String, dynamic> f = {};
+        d.forEach((k, v) {
+          if (k.toString().toLowerCase().contains('wb')) f[k.toString()] = v;
+        });
+        setState(() => _data = f);
+      }
+    });
+  }
+
+  void _listenSet() {
+    _setSub = _setRef.onValue.listen((e) {
+      if (e.snapshot.value != null && mounted) {
+        Map d = e.snapshot.value as Map;
+        setState(() {
+          _min = double.tryParse(d['setpoint_min']
+                  .toString()
+                  .replaceAll(RegExp(r'[^0-9.]'), '')) ??
+              40.0;
+          _max = double.tryParse(d['setpoint_max']
+                  .toString()
+                  .replaceAll(RegExp(r'[^0-9.]'), '')) ??
+              60.0;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSub?.cancel();
+    _setSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_data.isEmpty)
+      return Container(
+          width: widget.width,
+          height: widget.height ?? 250.0,
+          alignment: Alignment.center,
+          child: Text(_status));
+    var keys = _data.keys.toList()
+      ..sort((a, b) {
+        int nA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        int nB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return nA.compareTo(nB);
+      });
+    return Container(
+      width: widget.width,
+      height: widget.height ?? 250.0,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: keys.map((k) {
+            double val = double.tryParse(
+                    _data[k].toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+            double factor = (val / 100.0).clamp(0.0, 1.0);
+            Color c = val < _min
+                ? Colors.yellow
+                : (val <= _max ? Colors.green : Colors.red);
+            double bh = (widget.height ?? 250.0) - 60;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 35.0,
+                    height: bh,
+                    decoration: BoxDecoration(
+                        color: widget.backgroundColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6)),
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      width: 35.0,
+                      height: bh * factor,
+                      decoration: BoxDecoration(
+                          color: c, borderRadius: BorderRadius.circular(6)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text("${val.toStringAsFixed(0)}%",
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black)),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}

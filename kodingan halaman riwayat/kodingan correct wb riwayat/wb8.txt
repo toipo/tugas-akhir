@@ -1,0 +1,200 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class CounterRiwayatwb8 extends StatefulWidget {
+  const CounterRiwayatwb8(
+      {super.key,
+      this.width,
+      this.height,
+      required this.dbPath,
+      required this.textColor,
+      required this.textSize,
+      required this.dateKey});
+  final double? width, height;
+  final String dbPath, dateKey;
+  final Color textColor;
+  final double textSize;
+  @override
+  State<CounterRiwayatwb8> createState() => _CounterRiwayatStatewb8();
+}
+
+class _CounterRiwayatStatewb8 extends State<CounterRiwayatwb8> {
+  late DatabaseReference _dbRef, _setRef;
+  StreamSubscription? _dbSub, _setSub;
+  String _nilaiTeks = "...";
+  bool _isLive = false;
+  double _minP = 0.0, _maxP = 100.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAll();
+  }
+
+  @override
+  void didUpdateWidget(CounterRiwayatwb8 old) {
+    super.didUpdateWidget(old);
+    if (old.dateKey != widget.dateKey || old.dbPath != widget.dbPath) {
+      _dbSub?.cancel();
+      _setSub?.cancel();
+      setState(() => _nilaiTeks = "...");
+      _initAll();
+    }
+  }
+
+  void _initAll() {
+    DateTime n = DateTime.now();
+    _isLive = (widget.dateKey ==
+        "${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}");
+    String p = widget.dbPath.endsWith(widget.dateKey)
+        ? widget.dbPath
+        : "${widget.dbPath}/${widget.dateKey}";
+    FirebaseDatabase db = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL:
+            'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app');
+    _dbRef = db.ref(p);
+    _setRef = db.ref('pasien_8/pengaturan');
+    _loadCache().then((_) {
+      if (_isLive) {
+        _listenSet();
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (mounted) _listenDb();
+        });
+      } else {
+        _getSetOnce().then((_) {
+          if (_nilaiTeks == "..." || _nilaiTeks == "0") _getDbOnce();
+        });
+      }
+    });
+  }
+
+  Future<void> _loadCache() async {
+    SharedPreferences pr = await SharedPreferences.getInstance();
+    if (mounted)
+      setState(() {
+        _minP = double.tryParse(pr.getString('wb_8_min_${widget.dateKey}') ??
+                pr.getString('wb_8_min_L') ??
+                "") ??
+            0.0;
+        _maxP = double.tryParse(pr.getString('wb_8_max_${widget.dateKey}') ??
+                pr.getString('wb_8_max_L') ??
+                "") ??
+            100.0;
+        _nilaiTeks = pr.getString('cache_wb_8_${widget.dateKey}') ??
+            (_isLive ? "0" : _nilaiTeks);
+      });
+  }
+
+  void _processData(dynamic val, SharedPreferences pr) {
+    if (val == null) {
+      if (mounted) setState(() => _nilaiTeks = "0");
+      pr.remove('cache_wb_8_${widget.dateKey}');
+      return;
+    }
+    Map d = {};
+    if (val is Map)
+      d = val;
+    else if (val is List) {
+      for (int i = 0; i < val.length; i++) {
+        if (val[i] != null) d[i.toString()] = val[i];
+      }
+    }
+    int c = 0;
+    bool h = false;
+    d.forEach((k, v) {
+      if (k.toString().toLowerCase().contains('datawb')) {
+        h = true;
+        double p =
+            double.tryParse(v.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+        p = p > 1.0 ? p : p * 100;
+        if (p >= _minP && p <= _maxP) c++;
+      }
+    });
+    if (mounted) setState(() => _nilaiTeks = h ? c.toString() : "0");
+    if (h)
+      pr.setString('cache_wb_8_${widget.dateKey}', c.toString());
+    else
+      pr.remove('cache_wb_8_${widget.dateKey}');
+  }
+
+  Future<void> _getDbOnce() async {
+    try {
+      DataSnapshot s = await _dbRef.get().timeout(const Duration(seconds: 10));
+      _processData(s.value, await SharedPreferences.getInstance());
+    } catch (e) {
+      if (mounted) setState(() => _nilaiTeks = "0");
+    }
+  }
+
+  void _listenDb() {
+    _dbSub = _dbRef.onValue.listen((e) async =>
+        _processData(e.snapshot.value, await SharedPreferences.getInstance()));
+  }
+
+  void _processSet(dynamic val, SharedPreferences pr) {
+    if (val != null && val is Map) {
+      String minS =
+          val['setpoint_min']?.toString().replaceAll(RegExp(r'[^0-9.]'), '') ??
+              "0";
+      String maxS =
+          val['setpoint_max']?.toString().replaceAll(RegExp(r'[^0-9.]'), '') ??
+              "100";
+      if (mounted)
+        setState(() {
+          _minP = double.tryParse(minS) ?? 0.0;
+          _maxP = double.tryParse(maxS) ?? 100.0;
+        });
+      pr.setString('wb_8_min_${widget.dateKey}', minS);
+      pr.setString('wb_8_max_${widget.dateKey}', maxS);
+      pr.setString('wb_8_min_L', minS);
+      pr.setString('wb_8_max_L', maxS);
+    }
+  }
+
+  Future<void> _getSetOnce() async {
+    try {
+      DataSnapshot s = await _setRef.get().timeout(const Duration(seconds: 5));
+      _processSet(s.value, await SharedPreferences.getInstance());
+    } catch (e) {}
+  }
+
+  void _listenSet() {
+    _setSub = _setRef.onValue.listen((e) async =>
+        _processSet(e.snapshot.value, await SharedPreferences.getInstance()));
+  }
+
+  @override
+  void dispose() {
+    _dbSub?.cancel();
+    _setSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: widget.width,
+        height: widget.height,
+        alignment: Alignment.center,
+        child: Text(_nilaiTeks,
+            style: TextStyle(
+                fontSize: widget.textSize,
+                color: widget.textColor,
+                fontWeight: FontWeight.bold)));
+  }
+}

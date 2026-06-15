@@ -1,0 +1,168 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+// 🔥 TAMBAHAN IMPORT UNTUK RTDB:
+import 'package:firebase_database/firebase_database.dart';
+
+Future<String> createPatientFixedID(
+  String namaPasien,
+  String password,
+  String umur,
+  String berat,
+  String weightBearing,
+) async {
+  // 1. Cek Dokter Login
+  final doctor = FirebaseAuth.instance.currentUser;
+  if (doctor == null) return 'Sesi habis.';
+
+  FirebaseApp? secondaryApp; // Deklarasi di luar biar bisa dihapus di catch
+
+  try {
+    // ---------------------------------------------------
+    // TAHAP A: SETUP EMAIL & CEK SLOT (Max 10)
+    // ---------------------------------------------------
+    String cleanName = namaPasien.trim().replaceAll(' ', '_').toLowerCase();
+    String email = '$cleanName@klinik.id';
+    int beratInt = int.tryParse(berat) ?? 0;
+
+    // Ambil semua data pasien dari Firestore sekaligus untuk dicek
+    final allPatients =
+        await FirebaseFirestore.instance.collection('datapasien').get();
+
+    // 1. Cek Kuota: Kalau sudah mencapai 10 pasien, tolak
+    if (allPatients.docs.length >= 10) {
+      return 'full_quota';
+    }
+
+    // 2. Cek Email Ganda: Karena doc ID bukan email lagi, kita wajib cek field 'email'
+    bool emailSudahAda =
+        allPatients.docs.any((doc) => doc.data()['email'] == email);
+
+    if (emailSudahAda) {
+      return 'email_taken';
+    }
+
+    // 3. Cari Slot Kosong (pasien_1 s/d pasien_10)
+    // Mencari ID mana yang belum terpakai di database
+    String targetDocId = '';
+    int urutanKe = 1;
+    for (int i = 1; i <= 10; i++) {
+      String testId = 'pasien_$i';
+      bool isUsed = allPatients.docs.any((doc) => doc.id == testId);
+
+      if (!isUsed) {
+        targetDocId = testId;
+        urutanKe = i;
+        break; // Berhenti mencari setelah nemu slot pertama yang kosong
+      }
+    }
+
+    // Jaga-jaga jika terjadi anomali tidak dapat slot
+    if (targetDocId.isEmpty) {
+      return 'full_quota';
+    }
+
+    // ---------------------------------------------------
+    // TAHAP B: BUAT AKUN & SIMPAN KE FIRESTORE
+    // ---------------------------------------------------
+
+    // Inisialisasi App Bayangan (Pakai cleanName sebagai ID biar unik)
+    secondaryApp = await Firebase.initializeApp(
+      name: 'App_$cleanName',
+      options: Firebase.app().options,
+    );
+
+    // Create User di Auth
+    UserCredential hasil = await FirebaseAuth.instanceFor(app: secondaryApp)
+        .createUserWithEmailAndPassword(email: email, password: password);
+
+    String uidAuth = hasil.user!.uid;
+
+    // 🔥 SIMPAN KE FIRESTORE DENGAN DOC ID "pasien_X"
+    await FirebaseFirestore.instance
+        .collection('datapasien')
+        .doc(targetDocId) // <--- DOC ID SEKARANG PAKAI pasien_1, pasien_2, dst
+        .set({
+      'auth_uid': uidAuth,
+      'doc_id': targetDocId, // Update doc_id menyesuaikan slotnya
+      'urutan': urutanKe,
+      'email': email,
+      'password': password,
+      'namapasien': namaPasien,
+      'display_name': namaPasien,
+      'created_time': FieldValue.serverTimestamp(),
+      'photo_url': '',
+      'phone_number': '',
+      'role': 'Pasien',
+      'created_by': doctor.uid,
+      'umur': umur,
+      'beratbadan': beratInt,
+      'jenisWB': weightBearing,
+    });
+
+    // ---------------------------------------------------
+    // 🔥 TAMBAHAN: SIMPAN BERAT BADAN KE RTDB
+    // ---------------------------------------------------
+    // targetDocId isinya sudah pasti "pasien_1", "pasien_2", dst.
+    await FirebaseDatabase.instance.ref('$targetDocId/pengaturan').update({
+      'berat_badan': beratInt,
+    });
+
+    // Bersihkan App Bayangan jika sukses
+    await secondaryApp.delete();
+    return 'success';
+  } on FirebaseAuthException catch (e) {
+    // ---------------------------------------------------
+    // ERROR DARI AUTHENTICATION (Pas Bikin Akun)
+    // ---------------------------------------------------
+    if (secondaryApp != null) {
+      try {
+        await secondaryApp.delete();
+      } catch (_) {}
+    }
+
+    if (e.code == 'network-request-failed') {
+      return 'no_internet';
+    } else if (e.code == 'too-many-requests') {
+      return 'too_many_requests';
+    } else if (e.code == 'email-already-in-use') {
+      return 'email_taken';
+    } else {
+      return 'Error Auth: ${e.message}';
+    }
+  } on FirebaseException catch (e) {
+    // ---------------------------------------------------
+    // ERROR DARI FIRESTORE ATAU RTDB (Pas Cari Slot / Simpan Data)
+    // ---------------------------------------------------
+    if (secondaryApp != null) {
+      try {
+        await secondaryApp.delete();
+      } catch (_) {}
+    }
+
+    if (e.code == 'unavailable' || e.code == 'network-request-failed') {
+      return 'no_internet';
+    }
+    return 'Error Database: ${e.message}';
+  } catch (e) {
+    // ---------------------------------------------------
+    // ERROR LAINNYA (Sistem)
+    // ---------------------------------------------------
+    if (secondaryApp != null) {
+      try {
+        await secondaryApp.delete();
+      } catch (_) {}
+    }
+    return 'Error: $e';
+  }
+}

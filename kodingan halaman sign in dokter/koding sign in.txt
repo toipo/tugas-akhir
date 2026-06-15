@@ -1,0 +1,72 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+Future<String> createAccountCustom(
+  String email,
+  String password,
+  String confirmPassword,
+) async {
+  // 1. Cek Field Kosong
+  if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+    return 'field_empty'; // Field wajib diisi
+  }
+
+  // 2. Cek Password Match
+  if (password != confirmPassword) {
+    return 'password_mismatch'; // Password & Konfirmasi beda
+  }
+
+  // 3. ATURAN BARU: DILARANG PAKAI @klinik.id
+  if (email.toLowerCase().endsWith('@klinik.id')) {
+    return 'forbidden_domain';
+  }
+
+  try {
+    // --- TRIK NINJA: BIKIN FIREBASE BAYANGAN ---
+    // 4. Bikin koneksi Firebase sementara pakai config aplikasi utama
+    FirebaseApp tempApp = await Firebase.initializeApp(
+      name: 'AppBayangan',
+      options: Firebase.app().options,
+    );
+
+    // 5. Bikin akun pakai aplikasi bayangan (jadi aplikasi utama gak ikut login)
+    await FirebaseAuth.instanceFor(app: tempApp).createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    // 6. Hapus aplikasi bayangannya biar bersih dan gak menuhin memori HP
+    await tempApp.delete();
+    // -------------------------------------------
+
+    return 'success'; // Berhasil dibikin, tanpa auto-login!
+  } on FirebaseAuthException catch (e) {
+    // 7. Filter Error Firebase
+    if (e.code == 'email-already-in-use') {
+      return 'email_taken';
+    } else if (e.code == 'invalid-email') {
+      return 'invalid_email';
+    } else if (e.code == 'network-request-failed') {
+      return 'no_internet';
+    } else if (e.code == 'too-many-requests') {
+      return 'too_many_requests';
+    } else {
+      return e.message ?? 'system_error';
+    }
+  } catch (e) {
+    // Error Sistem (Crash)
+    return 'Error: $e';
+  }
+}
+// Set your action name, define your arguments and return parameter,
+// and then add the boilerplate code using the green button on the right!

@@ -1,0 +1,127 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import '/custom_code/widgets/index.dart';
+import '/custom_code/actions/index.dart';
+import '/flutter_flow/custom_functions.dart';
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class CounterRiwayatrom5 extends StatefulWidget {
+  const CounterRiwayatrom5(
+      {super.key,
+      this.width,
+      this.height,
+      required this.dbPath,
+      required this.textColor,
+      required this.textSize,
+      required this.dateKey});
+  final double? width, height;
+  final String dbPath, dateKey;
+  final Color textColor;
+  final double textSize;
+  @override
+  State<CounterRiwayatrom5> createState() => _CounterRiwayatStaterom5();
+}
+
+class _CounterRiwayatStaterom5 extends State<CounterRiwayatrom5> {
+  late DatabaseReference _dbRef;
+  StreamSubscription? _dbSub;
+  String _nilaiTeks = "...";
+
+  @override
+  void initState() {
+    super.initState();
+    _initAll();
+  }
+
+  @override
+  void didUpdateWidget(CounterRiwayatrom5 old) {
+    super.didUpdateWidget(old);
+    if (old.dateKey != widget.dateKey || old.dbPath != widget.dbPath) {
+      _dbSub?.cancel();
+      setState(() => _nilaiTeks = "...");
+      _initAll();
+    }
+  }
+
+  void _initAll() {
+    String p = widget.dbPath.endsWith(widget.dateKey)
+        ? widget.dbPath
+        : "${widget.dbPath}/${widget.dateKey}";
+    FirebaseDatabase db = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL:
+            'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app');
+    _dbRef = db.ref(p);
+    _loadCache().then((_) {
+      _dbSub = _dbRef.onValue.listen((e) async => _processData(
+          e.snapshot.value, await SharedPreferences.getInstance()));
+    });
+  }
+
+  Future<void> _loadCache() async {
+    SharedPreferences pr = await SharedPreferences.getInstance();
+    if (mounted)
+      setState(() {
+        _nilaiTeks = pr.getString('cache_rom_5_${widget.dateKey}') ?? "0";
+      });
+  }
+
+  void _processData(dynamic val, SharedPreferences pr) {
+    if (val == null) {
+      if (mounted) setState(() => _nilaiTeks = "0");
+      pr.setString('cache_rom_5_${widget.dateKey}', "0");
+      return;
+    }
+    Map d = {};
+    if (val is Map)
+      d = val;
+    else if (val is List) {
+      for (int i = 0; i < val.length; i++) {
+        if (val[i] != null) d[i.toString()] = val[i];
+      }
+    }
+    int c = 0;
+    d.forEach((k, v) {
+      String ks = k.toString().toLowerCase();
+      if (ks.contains('total_rom')) {
+        c +=
+            (double.tryParse(v.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                    0.0)
+                .toInt();
+      }
+    });
+    if (mounted) setState(() => _nilaiTeks = c.toString());
+    pr.setString('cache_rom_5_${widget.dateKey}', c.toString());
+  }
+
+  @override
+  void dispose() {
+    _dbSub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: widget.width,
+        height: widget.height,
+        alignment: Alignment.center,
+        child: Text(_nilaiTeks,
+            style: TextStyle(
+                fontSize: widget.textSize,
+                color: widget.textColor,
+                fontWeight: FontWeight.bold)));
+  }
+}

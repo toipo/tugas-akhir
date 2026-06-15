@@ -1,0 +1,79 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'index.dart'; // Imports other custom actions
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+Future simpanSetpointBerat(
+  BuildContext context,
+  String? minVal,
+  String? maxVal,
+  String dbPath, // 🔥 Parameter baru ditambahkan di sini
+) async {
+  // 1. Validasi Kosong
+  if (minVal == null ||
+      minVal.trim().isEmpty ||
+      maxVal == null ||
+      maxVal.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text('Form setpoint tidak boleh ada yang kosong!'),
+          backgroundColor: Colors.red),
+    );
+    return;
+  }
+
+  // 2. Validasi Tanda Persen (%)
+  if (!minVal.contains('%') || !maxVal.contains('%')) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text('Nilai setpoint berat harus menggunakan tanda %'),
+          backgroundColor: Colors.red),
+    );
+    return;
+  }
+
+  // 3. Kirim ke Firebase RTDB
+  // 🔥 URL sekarang menggunakan parameter dbPath.
+  // Pastikan parameter dbPath yang dikirim berisi "pasien_1/pengaturan"
+  final String dbUrl =
+      'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app/$dbPath.json';
+
+  try {
+    final response = await http.patch(
+      Uri.parse(dbUrl),
+      body: json.encode(
+          {'setpoint_min': minVal.trim(), 'setpoint_max': maxVal.trim()}),
+    );
+
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Setpoint Berat berhasil disimpan!'),
+            backgroundColor: Colors.green),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Gagal menyimpan ke database!'),
+            backgroundColor: Colors.red),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text('Terjadi kesalahan koneksi!'),
+          backgroundColor: Colors.red),
+    );
+  }
+}
+// Set your action name, define your arguments and return parameter,
+// and then add the boilerplate code using the green button on the right!
