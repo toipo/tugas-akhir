@@ -1,0 +1,44 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:onesignal_flutter/onesignal_flutter.dart';
+
+Future oneSignal() async {
+  OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
+
+  // Inisialisasi App ID abang
+  OneSignal.initialize("c8a62d1b-052b-4674-8130-ae83f845df0a");
+  OneSignal.Notifications.requestPermission(true);
+
+  // ==========================================
+  // JARING PENANGKAP NOTIFIKASI
+  // ==========================================
+  OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+    // 1. Ambil judul dan isi pesan dari OneSignal
+    final title = event.notification.title ?? "Pemberitahuan";
+    final body = event.notification.body ?? "Ada pesan baru untuk Anda";
+
+    // 2. Bungkus jadi bentuk JSON
+    final newNotif = {
+      "title": title,
+      "body": body,
+      "time": DateTime.now().toString() // Catat jam masuknya
+    };
+
+    // 3. Simpan ke App State (Internal Storage)
+    FFAppState().update(() {
+      // Kita pakai insert(0) biar notifikasi paling baru selalu muncul di urutan paling atas
+      FFAppState().listNotif.insert(0, newNotif);
+    });
+
+    // 4. Izinkan notif tetap muncul di status bar atas HP (pop-up system)
+    event.notification.display();
+  });
+}

@@ -1,0 +1,71 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:firebase_auth/firebase_auth.dart';
+
+Future<String> loginCustom(
+  String email,
+  String password,
+) async {
+  // 1. Cek jika kosong
+  if (email.isEmpty || password.isEmpty) {
+    return 'belum_terisi'; // KODE 1: Field masih kosong
+  }
+
+  // --- ATURAN BARU: DILARANG PAKAI @klinik.id ---
+  // Kita pakai toLowerCase() supaya @KLINIK.ID, @Klinik.id, @klinik.id semua kena blokir.
+  if (email.toLowerCase().endsWith('@klinik.id')) {
+    return 'forbidden_domain'; // KODE BARU: Domain ini dilarang login disini
+  }
+  // ----------------------------------------------
+
+  try {
+    // 2. Coba Login ke Firebase
+    await FirebaseAuth.instance.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    return 'success'; // KODE 2: Berhasil Login
+  } on FirebaseAuthException catch (e) {
+    // 3. Filter Error Firebase jadi Kode Singkat
+
+    // KODE 3: Email atau Password Salah
+    if (e.code == 'user-not-found' ||
+        e.code == 'wrong-password' ||
+        e.code == 'invalid-credential') {
+      return 'wrong_credentials';
+    }
+    // KODE 4: Format email ngawur
+    else if (e.code == 'invalid-email') {
+      return 'invalid_email';
+    }
+    // KODE 5: Akun dibanned admin
+    else if (e.code == 'user-disabled') {
+      return 'user_disabled';
+    }
+    // KODE 6: Kebanyakan spam login
+    else if (e.code == 'too-many-requests') {
+      return 'too_many_requests';
+    }
+    // KODE 7: Masalah Sinyal / Internet Mati
+    else if (e.code == 'network-request-failed') {
+      return 'not_network';
+    }
+    // KODE 8: Error Firebase lain
+    else {
+      return e.code;
+    }
+  } catch (e) {
+    // KODE 9: Error Sistem
+    return 'system_error';
+  }
+}
+// Set your action name, define your arguments and return parameter,
+// and then add the boilerplate code using the green button on the right!
