@@ -1,0 +1,329 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class PresentaseWBRiwayat extends StatefulWidget {
+  const PresentaseWBRiwayat({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.textColor,
+    required this.textSize,
+    required this.dateKey,
+    required this.idPasien,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color textColor;
+  final double textSize;
+  final String dateKey;
+  final String idPasien;
+
+  @override
+  State<PresentaseWBRiwayat> createState() => _PresentaseWBRiwayatState();
+}
+
+class _PresentaseWBRiwayatState extends State<PresentaseWBRiwayat> {
+  late DatabaseReference _dbRef;
+  late DatabaseReference _settingsRef;
+  StreamSubscription? _dbSubscription;
+  StreamSubscription? _settingsSubscription;
+
+  String _nilaiTeks = "...%";
+  bool _isLiveMode = false;
+  Timer? _localCheckTimer;
+
+  // Variabel Setpoint
+  double _minPercent = 0.0;
+  double _maxPercent = 100.0;
+
+  // Tanggal bersih
+  late String _cleanDateKey;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 1. CEK APAKAH DATEKEY ADALAH HARI INI
+    DateTime now = DateTime.now();
+    String todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    // 🔥 SANITASI TANGGAL
+    _cleanDateKey = widget.dateKey;
+    if (_cleanDateKey.length > 10 && _cleanDateKey.contains(' ')) {
+      _cleanDateKey = _cleanDateKey.split(' ')[0];
+    }
+    List<String> dateParts = _cleanDateKey.split('-');
+    if (dateParts.length == 3 && dateParts[0].length == 2) {
+      _cleanDateKey = "${dateParts[2]}-${dateParts[1]}-${dateParts[0]}";
+    }
+
+    _isLiveMode = (_cleanDateKey == todayStr);
+
+    String myDatabaseUrl =
+        'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+    FirebaseDatabase database = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: myDatabaseUrl,
+    );
+
+    // 🔥 PATH DINAMIS MENGGUNAKAN widget.idPasien
+    _dbRef = database.ref('${widget.idPasien}/monitoring/$_cleanDateKey');
+    _settingsRef = database.ref('${widget.idPasien}/pengaturan');
+
+    // 2. TARIK DATA LOKAL DULU (Biar offline langsung muncul)
+    _loadLocalCache();
+
+    // 3. PANTAU MEMORI HP TERUS MENERUS
+    if (_isLiveMode) {
+      _localCheckTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        _loadLocalCache();
+      });
+    }
+
+    // 4. JALANKAN PROSES SINKRONISASI FIREBASE Latar Belakang
+    _setupFirebaseAutoSync();
+  }
+
+  // ==========================================
+  // 🔥 FUNGSI MENGHITUNG PERSENTASE WB
+  // ==========================================
+  double _hitungPresentaseWb(Map<dynamic, dynamic> rawData) {
+    int countWbTotal = 0;
+    int countWbBerhasil = 0;
+
+    rawData.forEach((key, val) {
+      String keyStr = key.toString().toLowerCase();
+      // Pastikan hanya menghitung WB, abaikan ROM
+      if (keyStr.contains('wb') && !keyStr.contains('rom')) {
+        countWbTotal++;
+        String cleanValue = val.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+        double parsedValue = double.tryParse(cleanValue) ?? 0.0;
+
+        // Batasi persen antara 0-100
+        double percent100 = parsedValue.clamp(0.0, 100.0);
+
+        // Logika masuk target hijau
+        if (percent100 >= _minPercent && percent100 <= _maxPercent) {
+          countWbBerhasil++;
+        }
+      }
+    });
+
+    if (countWbTotal == 0) return 0.0;
+
+    // Hitung persentase
+    return (countWbBerhasil / countWbTotal) * 100.0;
+  }
+
+  // ==========================================
+  // 🔥 FUNGSI MEMBACA DARI MEMORI HP
+  // ==========================================
+  Future<void> _loadLocalCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    String? cachedMin = prefs.getString('setpoint_min_$_cleanDateKey') ??
+        prefs.getString('setpoint_min_latest');
+    String? cachedMax = prefs.getString('setpoint_max_$_cleanDateKey') ??
+        prefs.getString('setpoint_max_latest');
+
+    if (mounted) {
+      setState(() {
+        if (cachedMin != null) _minPercent = double.tryParse(cachedMin) ?? 0.0;
+        if (cachedMax != null)
+          _maxPercent = double.tryParse(cachedMax) ?? 100.0;
+      });
+    }
+
+    String? cachedData =
+        prefs.getString('riwayat_bluetooth_wb_$_cleanDateKey') ??
+            prefs.getString('riwayat_data_$_cleanDateKey');
+
+    if (mounted) {
+      if (cachedData != null) {
+        try {
+          var rawData = json.decode(cachedData);
+          if (rawData is Map) {
+            double hasilPersen = _hitungPresentaseWb(rawData);
+            setState(() {
+              _nilaiTeks = "${hasilPersen.toStringAsFixed(1)}%";
+            });
+          }
+        } catch (e) {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      } else {
+        if (_nilaiTeks == "...%") {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      }
+    }
+  }
+
+  // ==========================================
+  // 🔥 FUNGSI SINKRONISASI KE FIREBASE
+  // ==========================================
+  Future<void> _syncLocalToFirebase() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? offlineData =
+        prefs.getString('riwayat_bluetooth_wb_$_cleanDateKey');
+
+    if (offlineData != null) {
+      try {
+        Map<String, dynamic> dataToUpload = json.decode(offlineData);
+        await _dbRef.update(dataToUpload).timeout(const Duration(seconds: 5));
+      } catch (e) {
+        // Abaikan jika sedang offline
+      }
+    }
+  }
+
+  Future<void> _setupFirebaseAutoSync() async {
+    await _syncLocalToFirebase();
+
+    _listenToSettings();
+    if (_isLiveMode) {
+      _listenToFirebase();
+    } else {
+      _getHistoryFromFirebaseOnce();
+    }
+  }
+
+  void _listenToSettings() {
+    _settingsSubscription = _settingsRef.onValue.listen((event) async {
+      if (event.snapshot.value != null && mounted) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+
+        String minStr = data['setpoint_min']
+                ?.toString()
+                .replaceAll(RegExp(r'[^0-9.]'), '') ??
+            "0";
+        String maxStr = data['setpoint_max']
+                ?.toString()
+                .replaceAll(RegExp(r'[^0-9.]'), '') ??
+            "100";
+
+        setState(() {
+          _minPercent = double.tryParse(minStr) ?? 0.0;
+          _maxPercent = double.tryParse(maxStr) ?? 100.0;
+        });
+
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        prefs.setString('setpoint_min_$_cleanDateKey', minStr);
+        prefs.setString('setpoint_max_$_cleanDateKey', maxStr);
+      }
+    });
+  }
+
+  Future<void> _processFirebaseData(Map<dynamic, dynamic> data) async {
+    double hasilPersen = 0.0;
+    bool isRawDataMap = data.keys.any((k) => k.toString().contains('_'));
+
+    if (isRawDataMap) {
+      // Hitung ulang dari raw data
+      hasilPersen = _hitungPresentaseWb(data);
+    } else {
+      // Ambil langsung dari key presentase_wb jika raw data tidak ada
+      if (data['presentase_wb'] != null) {
+        hasilPersen = double.tryParse(data['presentase_wb'].toString()) ?? 0.0;
+      }
+    }
+
+    // Format menjadi 1 angka di belakang koma, ex: 85.5
+    double persenFinal = double.parse(hasilPersen.toStringAsFixed(1));
+
+    if (mounted) {
+      setState(() {
+        _nilaiTeks = "${persenFinal.toStringAsFixed(1)}%";
+      });
+    }
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    prefs.setString(
+        'presentase_wb_tercapai_$_cleanDateKey', persenFinal.toString());
+
+    // 🔥 FITUR UPLOAD 'presentase_wb' KE FIREBASE TELAH DIHAPUS DARI SINI
+  }
+
+  Future<void> _getHistoryFromFirebaseOnce() async {
+    try {
+      DataSnapshot snapshot =
+          await _dbRef.get().timeout(const Duration(seconds: 5));
+      if (snapshot.value != null && snapshot.value is Map) {
+        Map<dynamic, dynamic> data = snapshot.value as Map<dynamic, dynamic>;
+        await _processFirebaseData(data);
+      } else {
+        if (mounted) {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      }
+    } catch (e) {
+      print("Gagal mengambil data WB riwayat: $e");
+    }
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription = _dbRef.onValue.listen((event) async {
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        await _processFirebaseData(data);
+      } else {
+        if (mounted) {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _settingsSubscription?.cancel();
+    _localCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: widget.width,
+      height: widget.height,
+      alignment: Alignment.center,
+      child: Text(
+        _nilaiTeks,
+        style: TextStyle(
+          fontSize: widget.textSize,
+          color: widget.textColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}

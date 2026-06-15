@@ -1,0 +1,282 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ProgressBarRiwayat extends StatefulWidget {
+  const ProgressBarRiwayat({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.progressColor,
+    required this.backgroundColor,
+    this.label,
+    required this.dateKey,
+    required this.idPasien,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color progressColor;
+  final Color backgroundColor;
+  final String? label;
+  final String dateKey;
+  final String idPasien;
+
+  @override
+  State<ProgressBarRiwayat> createState() => _ProgressBarRiwayatState();
+}
+
+class _ProgressBarRiwayatState extends State<ProgressBarRiwayat> {
+  late DatabaseReference _dbRef;
+  late DatabaseReference _settingsRef;
+
+  Map<dynamic, dynamic> _localData = {};
+  String _statusText = "Memuat data riwayat...";
+  StreamSubscription? _dbSubscription;
+  StreamSubscription? _settingsSubscription;
+  bool _isLiveMode = false;
+  Timer? _localCheckTimer;
+
+  double _minPercent = 40.0;
+  double _maxPercent = 60.0;
+  late String _cleanDateKey;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 1. Sanitasi Tanggal
+    _cleanDateKey = widget.dateKey;
+    if (_cleanDateKey.length > 10 && _cleanDateKey.contains(' ')) {
+      _cleanDateKey = _cleanDateKey.split(' ')[0];
+    }
+
+    DateTime now = DateTime.now();
+    String todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    _isLiveMode = (_cleanDateKey == todayStr);
+
+    // 2. Setup Firebase
+    String myDatabaseUrl =
+        'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+    FirebaseDatabase database = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: myDatabaseUrl,
+    );
+
+    _dbRef = database.ref('${widget.idPasien}/monitoring/$_cleanDateKey');
+    _settingsRef = database.ref('${widget.idPasien}/pengaturan');
+
+    _initSequence();
+  }
+
+  Future<void> _initSequence() async {
+    await _loadLocalCache();
+
+    if (_isLiveMode) {
+      _localCheckTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        _loadLocalCache();
+      });
+      _listenToFirebase();
+    } else {
+      _getHistoryFromFirebaseOnce();
+    }
+
+    _listenToSettings();
+  }
+
+  Future<void> _loadLocalCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String key = 'riwayat_bluetooth_wb_$_cleanDateKey';
+    String? cachedData = prefs.getString(key);
+
+    if (mounted) {
+      if (cachedData != null && cachedData.isNotEmpty) {
+        try {
+          var decoded = json.decode(cachedData);
+          if (decoded is Map) {
+            setState(() {
+              _localData = decoded;
+            });
+          }
+        } catch (e) {
+          debugPrint("Error cache riwayat: $e");
+        }
+      }
+
+      if (_localData.isEmpty) {
+        setState(() {
+          _statusText = "Tidak ada data pada tanggal $_cleanDateKey";
+        });
+      }
+    }
+  }
+
+  void _listenToSettings() {
+    _settingsSubscription = _settingsRef.onValue.listen((event) {
+      if (event.snapshot.value != null && mounted) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        setState(() {
+          _minPercent = double.tryParse(data['setpoint_min']
+                      ?.toString()
+                      .replaceAll(RegExp(r'[^0-9.]'), '') ??
+                  "40") ??
+              40.0;
+          _maxPercent = double.tryParse(data['setpoint_max']
+                      ?.toString()
+                      .replaceAll(RegExp(r'[^0-9.]'), '') ??
+                  "60") ??
+              60.0;
+        });
+      }
+    });
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription = _dbRef.onValue.listen((event) {
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        _processAndSaveData(event.snapshot.value as Map);
+      }
+    });
+  }
+
+  Future<void> _getHistoryFromFirebaseOnce() async {
+    try {
+      DataSnapshot snap = await _dbRef.get();
+      if (snap.exists && snap.value is Map) {
+        _processAndSaveData(snap.value as Map);
+      }
+    } catch (e) {
+      debugPrint("Gagal ambil history: $e");
+    }
+  }
+
+  void _processAndSaveData(Map<dynamic, dynamic> data) async {
+    Map<String, dynamic> filtered = {};
+    data.forEach((key, value) {
+      if (key.toString().toLowerCase().contains('wb')) {
+        filtered[key.toString()] = value;
+      }
+    });
+
+    if (filtered.isNotEmpty && mounted) {
+      setState(() {
+        _localData = filtered;
+      });
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'riwayat_bluetooth_wb_$_cleanDateKey', json.encode(filtered));
+    }
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _settingsSubscription?.cancel();
+    _localCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var sortedKeys = _localData.keys
+        .where((k) => k.toString().toLowerCase().contains('wb'))
+        .toList()
+      ..sort((a, b) {
+        int numA =
+            int.tryParse(a.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        int numB =
+            int.tryParse(b.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return numA.compareTo(numB);
+      });
+
+    if (sortedKeys.isEmpty) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.height ?? 250,
+        child: Center(
+            child: Text(_statusText,
+                style: const TextStyle(fontWeight: FontWeight.bold))),
+      );
+    }
+
+    return SizedBox(
+      width: widget.width ?? double.infinity,
+      height: widget.height ?? 250.0,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: sortedKeys.map((key) {
+            final rawValue = _localData[key];
+            double val = double.tryParse(
+                    rawValue.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+
+            // 🔥 FIX: Angka murni dari DB dianggap 0-100. Dibagi 100 hanya untuk skala tinggi Bar (0.0 - 1.0)
+            double heightFactor = (val / 100.0).clamp(0.0, 1.0);
+
+            Color barColor = val < _minPercent
+                ? Colors.yellow
+                : (val <= _maxPercent ? Colors.green : Colors.red);
+
+            double barMaxHeight = (widget.height ?? 250.0) - 70;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 40.0,
+                    height: barMaxHeight,
+                    decoration: BoxDecoration(
+                      color: widget.backgroundColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      width: 40.0,
+                      height: barMaxHeight * heightFactor,
+                      decoration: BoxDecoration(
+                        color: barColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "${val.toStringAsFixed(0)}%",
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}

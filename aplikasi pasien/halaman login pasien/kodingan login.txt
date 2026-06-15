@@ -1,0 +1,108 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:timeago/timeago.dart' as timeago;
+import '/flutter_flow/custom_functions.dart';
+import '/flutter_flow/lat_lng.dart';
+import '/flutter_flow/place.dart';
+import '/flutter_flow/uploaded_file.dart';
+import '/backend/backend.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '/auth/firebase_auth/auth_util.dart';
+
+List<dynamic>? getDaftarRiwayat(dynamic dataFirebase) {
+  /// MODIFY CODE ONLY BELOW THIS LINE
+  if (dataFirebase == null) return [];
+
+  List<dynamic> listRiwayat = [];
+
+  // FUNGSI BANTUAN: Untuk mengekstrak data dari Map tunggal
+  void ekstrakData(String tanggal, Map isiData) {
+    int nilaiWB = 0;
+    int nilaiROM = 0;
+    double presentaseWb = 0.0;
+    double presentaseRom = 0.0; // Tambahan variabel untuk presentase ROM
+
+    // Cari key yang "mengandung" kata datawb/datarom (misal: datawb_1, datarom2)
+    isiData.forEach((k, v) {
+      String keyStr = k.toString().toLowerCase();
+      if (keyStr.contains('total_wb_hijau') && nilaiWB == 0) {
+        nilaiWB =
+            int.tryParse(v.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      }
+      if (keyStr.contains('total_rom') && nilaiROM == 0) {
+        nilaiROM =
+            int.tryParse(v.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      }
+      if (keyStr.contains('presentase_wb') && presentaseWb == 0.0) {
+        presentaseWb =
+            double.tryParse(v.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+      }
+      // Tambahan kondisi untuk mencari presentase_rom
+      if (keyStr.contains('presentase_rom') && presentaseRom == 0.0) {
+        presentaseRom =
+            double.tryParse(v.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+      }
+    });
+
+    // Tentukan hari dari tanggal
+    DateTime parsedDate;
+    try {
+      parsedDate = DateTime.parse(tanggal);
+    } catch (e) {
+      parsedDate = DateTime.now();
+    }
+    List<String> namaHari = [
+      "Senin",
+      "Selasa",
+      "Rabu",
+      "Kamis",
+      "Jumat",
+      "Sabtu",
+      "Minggu"
+    ];
+    String hariIndo = namaHari[parsedDate.weekday - 1];
+
+    listRiwayat.add({
+      "tanggal": tanggal,
+      "hari": hariIndo,
+      "wb": nilaiWB,
+      "rom": nilaiROM,
+      "total": presentaseWb, // (Lama) Menampilkan presentase WB
+      "presentase_wb": presentaseWb, // Ditambahkan eksplisit untuk membedakan
+      "presentase_rom": presentaseRom // Ditambahkan untuk output presentase ROM
+    });
+  }
+
+  // JIKA RESPON API BERUPA MAP (Banyak Tanggal)
+  if (dataFirebase is Map) {
+    dataFirebase.forEach((key, value) {
+      if (value is Map) {
+        ekstrakData(key.toString(), value);
+      }
+    });
+  }
+  // JIKA RESPON API BERUPA LIST (Data Array Langsung)
+  else if (dataFirebase is List) {
+    for (var item in dataFirebase) {
+      if (item is Map) {
+        // Asumsikan tanggal ada di dalam item jika berupa List
+        String tgl = item['tanggal']?.toString() ??
+            DateTime.now().toString().split(' ')[0];
+        ekstrakData(tgl, item);
+      }
+    }
+  }
+
+  // Urutkan biar tanggal terbaru ada di atas
+  listRiwayat.sort((a, b) => b["tanggal"].compareTo(a["tanggal"]));
+
+  return listRiwayat;
+
+  /// MODIFY CODE ONLY ABOVE THIS LINE
+}

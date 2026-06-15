@@ -1,0 +1,261 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:convert';
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ProgressBarCustom2 extends StatefulWidget {
+  const ProgressBarCustom2({
+    super.key,
+    this.width,
+    this.height,
+    required this.progressColor,
+    required this.backgroundColor,
+    this.label,
+    required this.offlineJsonData,
+    required this.dbPath,
+  });
+
+  final double? width;
+  final double? height;
+  final Color progressColor;
+  final Color backgroundColor;
+  final String? label;
+  final dynamic offlineJsonData;
+  final String dbPath;
+
+  @override
+  State<ProgressBarCustom2> createState() => _ProgressBarCustomState();
+}
+
+class _ProgressBarCustomState extends State<ProgressBarCustom2> {
+  double _currentPercent = 0.0;
+  String _currentRawValue = "0";
+
+  // Nilai default target
+  double _targetMin = 40.0;
+  double _targetMax = 60.0;
+  double _lastDataValue = 0.0;
+
+  StreamSubscription? _setpointSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSetpointListener();
+    _loadLatestDataFromJSON();
+  }
+
+  @override
+  void didUpdateWidget(ProgressBarCustom2 oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Jika data JSON offline berubah (ada data baru masuk), update tampilannya
+    if (widget.offlineJsonData != oldWidget.offlineJsonData) {
+      _loadLatestDataFromJSON();
+    }
+  }
+
+  // ==========================================
+  // 🔥 AMBIL SETPOINT DARI FIREBASE (LIVE)
+  // ==========================================
+  Future<void> _initSetpointListener() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Load cache lama dulu biar gak kedip
+    if (mounted) {
+      setState(() {
+        _targetMin =
+            prefs.getDouble('last_setpoint_min_${widget.dbPath}') ?? 40.0;
+        _targetMax =
+            prefs.getDouble('last_setpoint_max_${widget.dbPath}') ?? 60.0;
+      });
+    }
+
+    try {
+      // Ambil ID Pasien dari path (Asumsi path: pasien_X/monitoring/tanggal)
+      String patientId = widget.dbPath.split('/')[0];
+
+      String myDatabaseUrl =
+          'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+      FirebaseDatabase database = FirebaseDatabase.instanceFor(
+          app: Firebase.app(), databaseURL: myDatabaseUrl);
+
+      DatabaseReference setpointRef = database.ref('$patientId/pengaturan');
+
+      _setpointSubscription = setpointRef.onValue.listen((event) async {
+        if (event.snapshot.exists && event.snapshot.value != null) {
+          Map<dynamic, dynamic> data =
+              event.snapshot.value as Map<dynamic, dynamic>;
+
+          // Ambil value dan bersihkan dari simbol non-angka
+          String minStr = data['setpoint_min']?.toString() ?? "40";
+          String maxStr = data['setpoint_max']?.toString() ?? "60";
+
+          double newMin =
+              double.tryParse(minStr.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                  40.0;
+          double newMax =
+              double.tryParse(maxStr.replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                  60.0;
+
+          await prefs.setDouble('last_setpoint_min_${widget.dbPath}', newMin);
+          await prefs.setDouble('last_setpoint_max_${widget.dbPath}', newMax);
+
+          if (mounted) {
+            setState(() {
+              _targetMin = newMin;
+              _targetMax = newMax;
+            });
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint("❌ Error Setpoint Listener: $e");
+    }
+  }
+
+  // ==========================================
+  // 📈 PROSES DATA JSON TERBARU (WB)
+  // ==========================================
+  void _loadLatestDataFromJSON() {
+    if (widget.offlineJsonData != null) {
+      try {
+        var rawData = widget.offlineJsonData;
+
+        // Konversi jika tipenya masih String
+        if (rawData is String && rawData.isNotEmpty) {
+          rawData = json.decode(rawData);
+        }
+
+        if (rawData is Map && rawData.isNotEmpty) {
+          // Cari semua key yang mengandung kata 'wb'
+          var wbKeys = rawData.keys
+              .map((k) => k.toString())
+              .where((k) => k.toLowerCase().contains('wb'))
+              .toList();
+
+          if (wbKeys.isNotEmpty) {
+            // Urutkan untuk mencari timestamp terbaru (key angka terbesar)
+            wbKeys.sort((a, b) {
+              int numA = int.tryParse(a.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              int numB = int.tryParse(b.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              return numB.compareTo(numA); // Descending
+            });
+
+            String latestKey = wbKeys.first;
+            var latestValue = rawData[latestKey];
+
+            // Parsing angka murni
+            String cleanVal =
+                latestValue.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+            double parsedValue = double.tryParse(cleanVal) ?? 0.0;
+
+            if (mounted) {
+              setState(() {
+                _lastDataValue = parsedValue;
+                // FIX: Angka murni dibagi 100 untuk skala 0.0 - 1.0 di bar
+                _currentPercent = (parsedValue / 100.0).clamp(0.0, 1.0);
+                _currentRawValue = parsedValue.toStringAsFixed(0);
+              });
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint("❌ Error Parsing JSON: $e");
+      }
+    }
+
+    // Default jika data kosong
+    if (mounted) {
+      setState(() {
+        _lastDataValue = 0.0;
+        _currentPercent = 0.0;
+        _currentRawValue = "0";
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _setpointSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 🔥 LOGIKA WARNA DINAMIS BERDASARKAN SETPOINT
+    Color dynamicColor;
+    if (_lastDataValue < _targetMin) {
+      dynamicColor = Colors.yellow; // Kurang dari beban minimum
+    } else if (_lastDataValue >= _targetMin && _lastDataValue <= _targetMax) {
+      dynamicColor = Colors.green; // Masuk rentang target
+    } else {
+      dynamicColor = Colors.red; // Melebihi beban maksimum
+    }
+
+    double barHeight = (widget.height ?? 300.0) - 80;
+    double barWidth = 80.0;
+
+    return Container(
+      width: widget.width ?? double.infinity,
+      height: widget.height ?? 300.0,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Visual Bar (Vertical)
+          Container(
+            width: barWidth,
+            height: barHeight,
+            decoration: BoxDecoration(
+              color: widget.backgroundColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                  color: widget.backgroundColor.withOpacity(0.3), width: 1),
+            ),
+            alignment: Alignment.bottomCenter,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOutBack, // Animasi lebih smooth dan membal
+              width: barWidth,
+              height: barHeight * _currentPercent,
+              decoration: BoxDecoration(
+                color: dynamicColor,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: dynamicColor.withOpacity(0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Label Angka Persentase
+          Text(
+            "$_currentRawValue%",
+            style: const TextStyle(
+              fontSize: 32.0,
+              fontWeight: FontWeight.bold,
+              color: Colors.black,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

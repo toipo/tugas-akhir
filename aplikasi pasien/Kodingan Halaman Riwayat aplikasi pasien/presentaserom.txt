@@ -1,0 +1,258 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class PresentaseRomRiwayat extends StatefulWidget {
+  const PresentaseRomRiwayat({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.textColor,
+    required this.textSize,
+    required this.dateKey,
+    required this.idPasien,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color textColor;
+  final double textSize;
+  final String dateKey;
+  final String idPasien;
+
+  @override
+  State<PresentaseRomRiwayat> createState() => _PresentaseRomRiwayatState();
+}
+
+class _PresentaseRomRiwayatState extends State<PresentaseRomRiwayat> {
+  late DatabaseReference _dbRef;
+  StreamSubscription? _dbSubscription;
+
+  String _nilaiTeks = "...%";
+  bool _isLiveMode = false;
+  Timer? _localCheckTimer;
+
+  // Tanggal bersih
+  late String _cleanDateKey;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 1. SANITASI TANGGAL & CEK LIVE MODE
+    DateTime now = DateTime.now();
+    String todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    _cleanDateKey = widget.dateKey;
+    if (_cleanDateKey.length > 10 && _cleanDateKey.contains(' ')) {
+      _cleanDateKey = _cleanDateKey.split(' ')[0];
+    }
+    List<String> dateParts = _cleanDateKey.split('-');
+    if (dateParts.length == 3 && dateParts[0].length == 2) {
+      _cleanDateKey = "${dateParts[2]}-${dateParts[1]}-${dateParts[0]}";
+    }
+
+    _isLiveMode = (_cleanDateKey == todayStr);
+
+    String myDatabaseUrl =
+        'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+    FirebaseDatabase database = FirebaseDatabase.instanceFor(
+      app: Firebase.app(),
+      databaseURL: myDatabaseUrl,
+    );
+
+    // PATH MENGGUNAKAN idPasien
+    _dbRef = database.ref('${widget.idPasien}/monitoring/$_cleanDateKey');
+
+    // 2. TARIK DATA LOKAL DULU
+    _loadLocalCache();
+
+    // 3. PANTAU MEMORI HP TERUS MENERUS JIKA HARI INI
+    if (_isLiveMode) {
+      _localCheckTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        _loadLocalCache();
+      });
+    }
+
+    // 4. JALANKAN PROSES SINKRONISASI FIREBASE
+    _setupFirebaseAutoSync();
+  }
+
+  // ==========================================
+  // 🔥 FUNGSI MENGHITUNG PERSENTASE ROM (BOOLEAN)
+  // ==========================================
+  double _hitungPresentaseRom(Map<dynamic, dynamic> rawData) {
+    int countRomTotal = 0;
+    int countRomBerhasil = 0;
+
+    rawData.forEach((key, val) {
+      String keyStr = key.toString().toLowerCase();
+      // Filter hanya data ROM
+      if (keyStr.contains('rom') || keyStr.contains('datarom')) {
+        countRomTotal++;
+
+        // Cek apakah nilainya True (Berhasil)
+        bool isTrue = false;
+        if (val is bool) {
+          isTrue = val;
+        } else {
+          String strVal = val.toString().toLowerCase().trim();
+          isTrue = (strVal == 'true' || strVal == '1');
+        }
+
+        if (isTrue) {
+          countRomBerhasil++;
+        }
+      }
+    });
+
+    if (countRomTotal == 0) return 0.0;
+
+    // Hitung persentase: (Berhasil / Total) * 100
+    return (countRomBerhasil / countRomTotal) * 100.0;
+  }
+
+  // ==========================================
+  // 🔥 FUNGSI MEMBACA DARI MEMORI HP (OFFLINE FIRST)
+  // ==========================================
+  Future<void> _loadLocalCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    // Mencoba mengambil dari key Bluetooth atau key Data Umum
+    String? cachedData =
+        prefs.getString('riwayat_bluetooth_wb_$_cleanDateKey') ??
+            prefs.getString('riwayat_data_$_cleanDateKey');
+
+    if (mounted) {
+      if (cachedData != null) {
+        try {
+          var rawData = json.decode(cachedData);
+          if (rawData is Map) {
+            double hasilPersen = _hitungPresentaseRom(rawData);
+            setState(() {
+              _nilaiTeks = "${hasilPersen.toStringAsFixed(1)}%";
+            });
+          }
+        } catch (e) {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      } else {
+        if (_nilaiTeks == "...%") {
+          setState(() {
+            _nilaiTeks = "0.0%";
+          });
+        }
+      }
+    }
+  }
+
+  // ==========================================
+  // 🔥 SINKRONISASI Latar Belakang
+  // ==========================================
+  Future<void> _setupFirebaseAutoSync() async {
+    if (_isLiveMode) {
+      _listenToFirebase();
+    } else {
+      _getHistoryFromFirebaseOnce();
+    }
+  }
+
+  Future<void> _processFirebaseData(Map<dynamic, dynamic> data) async {
+    double hasilPersen = 0.0;
+
+    // Cek apakah ada data mentah (datarom_timestamp)
+    bool hasRawData =
+        data.keys.any((k) => k.toString().toLowerCase().contains('rom'));
+
+    if (hasRawData) {
+      hasilPersen = _hitungPresentaseRom(data);
+    } else {
+      // Jika hanya ada rangkuman (summary)
+      if (data['presentase_rom'] != null) {
+        hasilPersen = double.tryParse(data['presentase_rom'].toString()) ?? 0.0;
+      }
+    }
+
+    double persenFinal = double.parse(hasilPersen.toStringAsFixed(1));
+
+    if (mounted) {
+      setState(() {
+        _nilaiTeks = "${persenFinal.toStringAsFixed(1)}%";
+      });
+    }
+
+    // Simpan ke cache lokal agar saat buka lagi cepat
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    prefs.setString(
+        'presentase_rom_tercapai_$_cleanDateKey', persenFinal.toString());
+  }
+
+  Future<void> _getHistoryFromFirebaseOnce() async {
+    try {
+      DataSnapshot snapshot =
+          await _dbRef.get().timeout(const Duration(seconds: 5));
+      if (snapshot.value != null && snapshot.value is Map) {
+        Map<dynamic, dynamic> data = snapshot.value as Map<dynamic, dynamic>;
+        await _processFirebaseData(data);
+      } else {
+        if (mounted) setState(() => _nilaiTeks = "0.0%");
+      }
+    } catch (e) {
+      print("Gagal ambil history ROM: $e");
+    }
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription = _dbRef.onValue.listen((event) async {
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        await _processFirebaseData(data);
+      } else {
+        if (mounted) setState(() => _nilaiTeks = "0.0%");
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _localCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: widget.width,
+      height: widget.height,
+      alignment: Alignment.center,
+      child: Text(
+        _nilaiTeks,
+        style: TextStyle(
+          fontSize: widget.textSize,
+          color: widget.textColor,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}

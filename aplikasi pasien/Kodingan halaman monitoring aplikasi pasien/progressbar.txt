@@ -1,0 +1,37 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+Future<String> ubahModeFirebaseKeWifi() async {
+  // URL Database Abang dari kodingan ESP32
+  // Wajib ditambah ".json" di ujungnya agar API bisa menembus Firebase
+  String dbUrl =
+      "https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app/kontrol.json";
+
+  try {
+    // Kita tembak data {"mode": "wifi"} ke dalam folder kontrol
+    final response = await http.patch(
+      Uri.parse(dbUrl),
+      body: json.encode({"mode": "wifi"}),
+    );
+
+    if (response.statusCode == 200) {
+      return "sukses_update_firebase";
+    } else {
+      return "gagal_update: ${response.statusCode}";
+    }
+  } catch (e) {
+    return "error: $e";
+  }
+}
+// Set your action name, define your arguments and return parameter,
+// and then add the boilerplate code using the green button on the right!
