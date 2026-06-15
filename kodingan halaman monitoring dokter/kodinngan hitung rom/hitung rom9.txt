@@ -1,0 +1,142 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class RealtimeCounter18 extends StatefulWidget {
+  const RealtimeCounter18(
+      {super.key,
+      this.width,
+      this.height,
+      required this.dbPath,
+      required this.textColor,
+      required this.textSize});
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color textColor;
+  final double textSize;
+  @override
+  State<RealtimeCounter18> createState() => _RealtimeCounterState18();
+}
+
+class _RealtimeCounterState18 extends State<RealtimeCounter18> {
+  late FirebaseDatabase _database;
+  late DatabaseReference _dbRef;
+  StreamSubscription? _dbSubscription;
+  Timer? _dayCheckerTimer;
+  String _nilaiTeks = "...";
+  String _currentDateStr = "";
+  @override
+  void initState() {
+    super.initState();
+    _initDayAndLoadCache();
+    _database = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL:
+            'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app');
+    _database.setPersistenceEnabled(true);
+    _dbRef = _database.ref('${widget.dbPath}/$_currentDateStr');
+    _startDayCheckerTimer();
+    _listenToFirebase();
+  }
+
+  Future<void> _initDayAndLoadCache() async {
+    DateTime now = DateTime.now();
+    _currentDateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    int? cachedCounter = prefs.getInt('counter18_rom_$_currentDateStr');
+    if (mounted)
+      setState(() {
+        _nilaiTeks = cachedCounter?.toString() ?? "0";
+      });
+  }
+
+  void _startDayCheckerTimer() {
+    _dayCheckerTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      DateTime now = DateTime.now();
+      String todayStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      if (_currentDateStr != "" && _currentDateStr != todayStr) {
+        if (mounted)
+          setState(() {
+            _nilaiTeks = "0";
+            _currentDateStr = todayStr;
+          });
+        _dbRef = _database.ref('${widget.dbPath}/$_currentDateStr');
+        _listenToFirebase();
+      }
+    });
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription?.cancel();
+    _dbSubscription = _dbRef.onValue.listen((event) async {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        int totalHitunganRom = 0;
+        data.forEach((key, value) {
+          String keyStr = key.toString().toLowerCase();
+          if (keyStr.contains('rom') || keyStr.contains('datarom')) {
+            if (value == true ||
+                value.toString().toLowerCase() == 'true' ||
+                value.toString() == '1') totalHitunganRom++;
+          }
+        });
+        if (mounted)
+          setState(() {
+            _nilaiTeks = totalHitunganRom.toString();
+          });
+        prefs.setInt('counter18_rom_$_currentDateStr', totalHitunganRom);
+        try {
+          await _database
+              .ref(
+                  '${widget.dbPath.replaceAll('monitoring', 'riwayat')}/$_currentDateStr')
+              .update({'total_rom': totalHitunganRom});
+        } catch (e) {}
+      } else {
+        if (mounted)
+          setState(() {
+            _nilaiTeks = "0";
+          });
+        prefs.setInt('counter18_rom_$_currentDateStr', 0);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _dayCheckerTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: widget.width,
+        height: widget.height,
+        alignment: Alignment.center,
+        child: Text(_nilaiTeks,
+            style: TextStyle(
+                fontSize: widget.textSize,
+                color: widget.textColor,
+                fontWeight: FontWeight.bold)));
+  }
+}
+// Set your widget name, define your parameter, and then add the
+// boilerplate code using the green button on the right!

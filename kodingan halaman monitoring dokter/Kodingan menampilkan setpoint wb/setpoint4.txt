@@ -1,0 +1,42 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+
+Future bacaSetpointRTDB5(BuildContext context, String idPasien) async {
+  String myDatabaseUrl =
+      'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+  FirebaseDatabase database = FirebaseDatabase.instanceFor(
+      app: Firebase.app(), databaseURL: myDatabaseUrl);
+  DatabaseReference dbRef = database.ref('$idPasien/pengaturan');
+
+  dbRef.onValue.listen((event) {
+    if (event.snapshot.value != null) {
+      Map<dynamic, dynamic> data =
+          event.snapshot.value as Map<dynamic, dynamic>;
+
+      String min = data['setpoint_min']?.toString() ?? "0";
+      String max = data['setpoint_max']?.toString() ?? "0";
+
+      FFAppState().update(() {
+        FFAppState().setpointBerat5 = "$min - $max";
+      });
+
+      DateTime now = DateTime.now();
+      String tanggalHariIni =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      database.ref('$idPasien/riwayat/$tanggalHariIni').update({
+        'setpoint_min': min,
+        'setpoint_max': max,
+      });
+    }
+  });
+}

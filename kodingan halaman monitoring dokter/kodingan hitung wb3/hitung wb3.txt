@@ -1,0 +1,194 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import '/custom_code/widgets/index.dart';
+import '/custom_code/actions/index.dart';
+import '/flutter_flow/custom_functions.dart';
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class RealtimeCounter5 extends StatefulWidget {
+  const RealtimeCounter5({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.textColor,
+    required this.textSize,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color textColor;
+  final double textSize;
+
+  @override
+  State<RealtimeCounter5> createState() => _RealtimeCounter5State();
+}
+
+class _RealtimeCounter5State extends State<RealtimeCounter5> {
+  late FirebaseDatabase _database;
+  late DatabaseReference _dbRef;
+  late DatabaseReference _settingsRef;
+  late DatabaseReference _riwayatRef;
+  StreamSubscription? _dbSubscription;
+  StreamSubscription? _settingsSubscription;
+  Timer? _dayCheckerTimer;
+  String _nilaiTeks = "...";
+  String _currentDateStr = "";
+  double _minPercent = 0.0;
+  double _maxPercent = 100.0;
+
+  @override
+  void initState() {
+    super.initState();
+    DateTime now = DateTime.now();
+    _currentDateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    _loadCacheLokal();
+
+    _database = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL:
+            'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app');
+    _database.setPersistenceEnabled(true);
+
+    _dbRef = _database.ref('${widget.dbPath}/$_currentDateStr');
+    String pasienPath = widget.dbPath.split('/')[0];
+    _settingsRef = _database.ref('$pasienPath/pengaturan');
+
+    String riwayatPathBase = widget.dbPath.replaceAll('monitoring', 'riwayat');
+    _riwayatRef = _database.ref('$riwayatPathBase/$_currentDateStr');
+
+    _startDayCheckerTimer();
+    _listenToSettings();
+
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _listenToFirebase();
+    });
+  }
+
+  Future<void> _loadCacheLokal() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    int? cachedCounter =
+        prefs.getInt('counter_tercapai_${widget.dbPath}_$_currentDateStr');
+    if (cachedCounter != null && mounted)
+      setState(() {
+        _nilaiTeks = cachedCounter.toString();
+      });
+  }
+
+  void _startDayCheckerTimer() {
+    _dayCheckerTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      DateTime now = DateTime.now();
+      String todayStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      if (_currentDateStr != "" && _currentDateStr != todayStr) {
+        if (mounted) {
+          setState(() {
+            _nilaiTeks = "0";
+            _currentDateStr = todayStr;
+          });
+          _dbRef = _database.ref('${widget.dbPath}/$_currentDateStr');
+          _riwayatRef = _database.ref(
+              '${widget.dbPath.replaceAll('monitoring', 'riwayat')}/$_currentDateStr');
+          _listenToFirebase();
+        }
+      }
+    });
+  }
+
+  void _listenToSettings() {
+    _settingsSubscription = _settingsRef.onValue.listen((event) {
+      if (event.snapshot.value != null && mounted) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        setState(() {
+          _minPercent = double.tryParse(data['setpoint_min']
+                      ?.toString()
+                      .replaceAll(RegExp(r'[^0-9.]'), '') ??
+                  "0") ??
+              0.0;
+          _maxPercent = double.tryParse(data['setpoint_max']
+                      ?.toString()
+                      .replaceAll(RegExp(r'[^0-9.]'), '') ??
+                  "100") ??
+              100.0;
+        });
+      }
+    });
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription?.cancel();
+    _dbSubscription = _dbRef.onValue.listen((event) async {
+      if (event.snapshot.value != null && event.snapshot.value is Map) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        int hitungTercapai = 0;
+        data.forEach((key, value) {
+          if (key.toString().toLowerCase().contains('wb')) {
+            double parsedValue = double.tryParse(
+                    value.toString().replaceAll(RegExp(r'[^0-9.]'), '')) ??
+                0.0;
+            double percent100 =
+                (parsedValue > 1.0 ? parsedValue : parsedValue * 100);
+            if (percent100 >= _minPercent && percent100 <= _maxPercent)
+              hitungTercapai++;
+          }
+        });
+
+        if (mounted)
+          setState(() {
+            _nilaiTeks = hitungTercapai.toString();
+          });
+        try {
+          await _riwayatRef.update({'total_wb_hijau': hitungTercapai});
+        } catch (e) {
+          debugPrint("$e");
+        }
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        prefs.setInt('counter_tercapai_${widget.dbPath}_$_currentDateStr',
+            hitungTercapai);
+      } else {
+        if (mounted)
+          setState(() {
+            _nilaiTeks = "0";
+          });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _settingsSubscription?.cancel();
+    _dayCheckerTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: widget.width,
+        height: widget.height,
+        alignment: Alignment.center,
+        child: Text(_nilaiTeks,
+            style: TextStyle(
+                fontSize: widget.textSize,
+                color: widget.textColor,
+                fontWeight: FontWeight.bold)));
+  }
+}

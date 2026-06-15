@@ -1,0 +1,71 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom action code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+
+Future bacaSetpointRTDB2(
+  BuildContext context,
+  String idPasien, // 🔥 PARAMETER BARU DITAMBAHKAN DI SINI
+) async {
+  String myDatabaseUrl =
+      'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+  FirebaseDatabase database = FirebaseDatabase.instanceFor(
+    app: Firebase.app(),
+    databaseURL: myDatabaseUrl,
+  );
+
+  // 🔥 PATH DINAMIS MENGGUNAKAN PARAMETER idPasien 🔥
+  DatabaseReference dbRef = database.ref('$idPasien/pengaturan');
+
+  dbRef.onValue.listen((event) {
+    if (event.snapshot.value != null) {
+      // Ambil datanya sebagai Map
+      Map<dynamic, dynamic> data =
+          event.snapshot.value as Map<dynamic, dynamic>;
+
+      // Ambil nilai min dan max (Sesuaikan 'setpoint_min' & 'setpoint_max'
+      // dengan nama key/variabel yang Abang ketik di Firebase)
+      String min = data['setpoint_min']?.toString() ?? "0";
+      String max = data['setpoint_max']?.toString() ?? "0";
+
+      // Gabungkan dan update ke layar
+      FFAppState().update(() {
+        FFAppState().setpointBerat2 = "$min - $max";
+      });
+
+      // ---------------------------------------------------
+      // 🔥 TAMBAHAN: MENGAMBIL TANGGAL HARI INI
+      // ---------------------------------------------------
+      DateTime now = DateTime.now();
+      // Format tanggal menjadi YYYY-MM-DD (Contoh: 2026-05-15)
+      String tanggalHariIni =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      // ---------------------------------------------------
+      // 🔥 KIRIM KE PATH 'riwayat/tanggalHariIni' (TANPA PUSH & WAKTU)
+      // ---------------------------------------------------
+      // Pathnya sekarang menjadi: pasien_X/riwayat/2026-05-15
+      DatabaseReference riwayatRef =
+          database.ref('$idPasien/riwayat/$tanggalHariIni');
+
+      // Menggunakan .update() agar datawb & datarom tidak terhapus (ter-overwrite)
+      riwayatRef.update({
+        'setpoint_min': min,
+        'setpoint_max': max,
+      }).then((_) {
+        print("Berhasil menyimpan setpoint ke riwayat tanggal $tanggalHariIni");
+      }).catchError((error) {
+        print("Gagal menyimpan riwayat: $error");
+      });
+      // ---------------------------------------------------
+    }
+  });
+}

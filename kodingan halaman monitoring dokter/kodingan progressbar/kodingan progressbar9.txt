@@ -1,0 +1,245 @@
+// Automatic FlutterFlow imports
+import '/backend/backend.dart';
+import '/flutter_flow/flutter_flow_theme.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/custom_code/actions/index.dart'; // Imports custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
+import 'package:flutter/material.dart';
+// Begin custom widget code
+// DO NOT REMOVE OR MODIFY THE CODE ABOVE!
+
+import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
+
+class ProgressBarCustom9 extends StatefulWidget {
+  const ProgressBarCustom9({
+    super.key,
+    this.width,
+    this.height,
+    required this.dbPath,
+    required this.progressColor,
+    required this.backgroundColor,
+    this.label,
+  });
+
+  final double? width;
+  final double? height;
+  final String dbPath;
+  final Color progressColor;
+  final Color backgroundColor;
+  final String? label;
+
+  @override
+  State<ProgressBarCustom9> createState() => _ProgressBarCustomState9();
+}
+
+class _ProgressBarCustomState9 extends State<ProgressBarCustom9> {
+  late FirebaseDatabase _database;
+  late DatabaseReference _dbRef;
+  late DatabaseReference _settingsRef;
+
+  Map<String, dynamic> _localData = {};
+  String _currentDayStr = "";
+  String _statusText = "Mengambil data dari Firebase...";
+
+  double _minPercent = 40.0;
+  double _maxPercent = 60.0;
+
+  StreamSubscription? _dbSubscription;
+  StreamSubscription? _settingsSubscription;
+  Timer? _dayCheckerTimer;
+
+  String _getTodayString() {
+    DateTime now = DateTime.now();
+    return "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    String myDatabaseUrl =
+        'https://project-ta-9d176-default-rtdb.asia-southeast1.firebasedatabase.app';
+    _database = FirebaseDatabase.instanceFor(
+        app: Firebase.app(), databaseURL: myDatabaseUrl);
+    _database.setPersistenceEnabled(true);
+
+    _settingsRef = _database.ref('pasien_9/pengaturan');
+    _currentDayStr = _getTodayString();
+    _dbRef = _database.ref('pasien_9/monitoring/$_currentDayStr');
+
+    _startDayCheckerTimer();
+    _listenToFirebase();
+    _listenToSettings();
+  }
+
+  void _startDayCheckerTimer() {
+    _dayCheckerTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      String todayStr = _getTodayString();
+      if (_currentDayStr != todayStr) {
+        _currentDayStr = todayStr;
+        if (mounted) {
+          setState(() {
+            _localData.clear();
+            _statusText = "Menunggu data hari ini...";
+          });
+        }
+        _dbSubscription?.cancel();
+        _dbRef = _database.ref('pasien_9/monitoring/$_currentDayStr');
+        _listenToFirebase();
+      }
+    });
+  }
+
+  void _listenToFirebase() {
+    _dbSubscription = _dbRef.onValue.listen((event) {
+      if (event.snapshot.exists && event.snapshot.value != null) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        if (mounted) {
+          setState(() {
+            _localData.clear();
+            data.forEach((key, value) {
+              if (key.toString().toLowerCase().contains('wb')) {
+                _localData[key.toString()] = value;
+              }
+            });
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _localData.clear();
+            _statusText = "Belum ada data untuk hari ini.";
+          });
+        }
+      }
+    });
+  }
+
+  void _listenToSettings() {
+    _settingsSubscription = _settingsRef.onValue.listen((event) {
+      if (event.snapshot.exists && event.snapshot.value != null) {
+        Map<dynamic, dynamic> data =
+            event.snapshot.value as Map<dynamic, dynamic>;
+        String minStr = data['setpoint_min']
+                ?.toString()
+                .replaceAll(RegExp(r'[^0-9.]'), '') ??
+            "40";
+        String maxStr = data['setpoint_max']
+                ?.toString()
+                .replaceAll(RegExp(r'[^0-9.]'), '') ??
+            "60";
+        if (mounted) {
+          setState(() {
+            _minPercent = double.tryParse(minStr) ?? 40.0;
+            _maxPercent = double.tryParse(maxStr) ?? 60.0;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _dbSubscription?.cancel();
+    _settingsSubscription?.cancel();
+    _dayCheckerTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_localData.isEmpty) {
+      return Container(
+        width: widget.width ?? double.infinity,
+        height: widget.height ?? 250.0,
+        alignment: Alignment.center,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(
+            _statusText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Colors.black, fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+    }
+
+    var sortedKeys = _localData.keys.toList()
+      ..sort((a, b) {
+        int numA =
+            int.tryParse(a.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        int numB =
+            int.tryParse(b.toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return numA.compareTo(numB);
+      });
+
+    return Container(
+      width: widget.width ?? double.infinity,
+      height: widget.height ?? 250.0,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: sortedKeys.map((key) {
+            final rawValue = _localData[key];
+            String cleanValue =
+                rawValue.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+            double val = double.tryParse(cleanValue) ?? 0.0;
+            double heightFactor = (val / 100.0).clamp(0.0, 1.0);
+
+            Color dynamicColor;
+            if (val < _minPercent) {
+              dynamicColor = Colors.yellow;
+            } else if (val <= _maxPercent) {
+              dynamicColor = Colors.green;
+            } else {
+              dynamicColor = Colors.red;
+            }
+
+            double barHeight = (widget.height ?? 250.0) - 70;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 40.0,
+                    height: barHeight,
+                    decoration: BoxDecoration(
+                      color: widget.backgroundColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      width: 40.0,
+                      height: barHeight * heightFactor,
+                      decoration: BoxDecoration(
+                          color: dynamicColor,
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "${val.toStringAsFixed(0)}%",
+                    style: const TextStyle(
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+}
